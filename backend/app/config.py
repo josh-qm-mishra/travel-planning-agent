@@ -27,6 +27,12 @@ class Settings(BaseSettings):
         default="gpt-4o",
         validation_alias=AliasChoices("OPENAI_MODEL", "APP_OPENAI_MODEL"),
     )
+    # Accepts DATABASE_URL (conventional) or APP_DATABASE_URL (prefixed).
+    # Defaults to a local SQLite file so the server starts without PostgreSQL.
+    database_url: str = Field(
+        default="sqlite+aiosqlite:///./travel_planning.db",
+        validation_alias=AliasChoices("DATABASE_URL", "APP_DATABASE_URL"),
+    )
 
     model_config = SettingsConfigDict(
         env_prefix="APP_",
