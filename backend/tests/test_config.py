@@ -56,9 +56,11 @@ def test_os_env_var_beats_env_file(tmp_path):
 
 
 def test_prefixed_os_env_var_beats_env_file(tmp_path):
-    """The APP_-prefixed variant also takes precedence over .env."""
+    """APP_-prefixed OS env var overrides the same prefixed key in a .env file."""
     fake_env = tmp_path / ".env"
-    fake_env.write_text("OPENAI_MODEL=model-from-file\n", encoding="utf-8")
+    # Use the same APP_-prefixed key in the file so pydantic-settings resolves both
+    # values through the same alias, making precedence unambiguous.
+    fake_env.write_text("APP_OPENAI_MODEL=model-from-file\n", encoding="utf-8")
 
     with patch.dict(os.environ, {"APP_OPENAI_MODEL": "model-from-os"}, clear=False):
         s = Settings(_env_file=str(fake_env))
