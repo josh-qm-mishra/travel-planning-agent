@@ -1,5 +1,13 @@
+from pathlib import Path
+
 from pydantic import AliasChoices, Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Resolve the repository-root .env from this file's location, not from CWD:
+#   backend/app/config.py  →  .parent → backend/app/
+#                          →  .parent → backend/
+#                          →  .parent → travel-planning-agent/  (repo root)
+_ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 
 
 class Settings(BaseSettings):
@@ -20,7 +28,11 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("OPENAI_MODEL", "APP_OPENAI_MODEL"),
     )
 
-    model_config = {"env_prefix": "APP_"}
+    model_config = SettingsConfigDict(
+        env_prefix="APP_",
+        env_file=str(_ENV_FILE),
+        env_file_encoding="utf-8",
+    )
 
 
 settings = Settings()
