@@ -33,9 +33,28 @@ def dates_match(request: TripPlanRequest) -> PlanCheckFn:
     return _check
 
 
+def _destinations_match(a: str, b: str) -> bool:
+    """Return True when a and b refer to the same destination.
+
+    Accepts harmless geographic qualification: "Paris" matches "Paris, France"
+    because the AI often appends ", <country/state>" to the city name.
+    Rejects genuinely different destinations: "Paris" does not match "London".
+
+    The rule: after lower-casing and stripping, the strings are considered
+    equivalent if one is a prefix of the other followed immediately by a comma
+    (or they are identical).
+    """
+    a, b = a.strip().lower(), b.strip().lower()
+    if a == b:
+        return True
+    # Geographic qualification: shorter name + ", ..." == longer qualified name
+    short, long = (a, b) if len(a) <= len(b) else (b, a)
+    return long.startswith(short + ",")
+
+
 def destination_preserved(request: TripPlanRequest) -> PlanCheckFn:
     def _check(trip: Trip) -> CheckResult:
-        if trip.destination.lower() != request.destination.lower():
+        if not _destinations_match(trip.destination, request.destination):
             return CheckResult(
                 "destination_preserved",
                 False,

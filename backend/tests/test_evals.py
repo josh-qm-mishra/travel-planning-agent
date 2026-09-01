@@ -9,6 +9,7 @@ import pytest
 from app.agent.models import TripPlanRequest
 from app.evals.cases import ALL_PLANNING_CASES, ALL_REPLANNING_CASES
 from app.evals.checks import (
+    _destinations_match,
     affected_date_changed,
     all_days_represented,
     budget_maintained,
@@ -110,6 +111,54 @@ class TestDatesMatch:
         assert "end_date" in result.reason
 
 
+class TestDestinationsMatch:
+    """Unit tests for the _destinations_match helper."""
+
+    # Accepted: harmless geographic qualification
+    def test_exact_same(self):
+        assert _destinations_match("Paris", "Paris")
+
+    def test_case_insensitive(self):
+        assert _destinations_match("paris", "PARIS")
+
+    def test_city_qualified_with_country(self):
+        assert _destinations_match("Paris", "Paris, France")
+
+    def test_city_qualified_with_state(self):
+        assert _destinations_match("Chicago", "Chicago, IL")
+
+    def test_tokyo_japan(self):
+        assert _destinations_match("Tokyo", "Tokyo, Japan")
+
+    def test_qualification_reversed(self):
+        # Requested "Paris, France", agent returns "Paris" — also fine
+        assert _destinations_match("Paris, France", "Paris")
+
+    def test_surrounding_whitespace_ignored(self):
+        assert _destinations_match("  Paris  ", "Paris, France")
+
+    def test_case_insensitive_qualified(self):
+        assert _destinations_match("paris", "Paris, France")
+
+    # Rejected: actual destination changes
+    def test_different_city_paris_london(self):
+        assert not _destinations_match("Paris", "London")
+
+    def test_different_city_paris_lyon(self):
+        assert not _destinations_match("Paris", "Lyon")
+
+    def test_different_city_tokyo_kyoto(self):
+        assert not _destinations_match("Tokyo", "Kyoto")
+
+    def test_no_spurious_prefix_match(self):
+        # "Par" should not match "Paris, France"
+        assert not _destinations_match("Par", "Paris, France")
+
+    def test_no_comma_required_for_different_country(self):
+        # "Paris France" (no comma) is NOT an accepted qualification
+        assert not _destinations_match("Paris", "Paris France")
+
+
 class TestDestinationPreserved:
     def test_pass_exact_match(self):
         req = _req("Paris")
@@ -121,11 +170,36 @@ class TestDestinationPreserved:
         trip = _trip("PARIS", "2025-06-01", "2025-06-01", [])
         assert destination_preserved(req)(trip).passed
 
+    def test_pass_city_qualified_with_country(self):
+        req = _req("Paris")
+        trip = _trip("Paris, France", "2025-06-01", "2025-06-01", [])
+        assert destination_preserved(req)(trip).passed
+
+    def test_pass_city_qualified_with_state(self):
+        req = _req("Chicago")
+        trip = _trip("Chicago, IL", "2025-06-01", "2025-06-01", [])
+        assert destination_preserved(req)(trip).passed
+
+    def test_pass_tokyo_japan(self):
+        req = _req("Tokyo")
+        trip = _trip("Tokyo, Japan", "2025-06-01", "2025-06-01", [])
+        assert destination_preserved(req)(trip).passed
+
     def test_fail_different_city(self):
         req = _req("Paris")
         trip = _trip("Rome", "2025-06-01", "2025-06-01", [])
         result = destination_preserved(req)(trip)
         assert not result.passed
+
+    def test_fail_paris_lyon(self):
+        req = _req("Paris")
+        trip = _trip("Lyon", "2025-06-01", "2025-06-01", [])
+        assert not destination_preserved(req)(trip).passed
+
+    def test_fail_tokyo_kyoto(self):
+        req = _req("Tokyo")
+        trip = _trip("Kyoto", "2025-06-01", "2025-06-01", [])
+        assert not destination_preserved(req)(trip).passed
 
 
 class TestNoOverlappingActivities:
