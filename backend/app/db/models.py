@@ -27,6 +27,7 @@ class TripRecord(Base):
     end_date: Mapped[date] = mapped_column(Date)
     trip_data: Mapped[str] = mapped_column(Text, nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    owner_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow

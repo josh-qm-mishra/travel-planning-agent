@@ -38,7 +38,11 @@ export default function ReplanPanel({
       setRequest("");
       onReplanned(result);
     } catch (err) {
-      if (err instanceof ApiError && err.status === 409) {
+      if (err instanceof ApiError && err.status === 429) {
+        setError(
+          "You've made several planning requests recently. Please wait a moment and try again.",
+        );
+      } else if (err instanceof ApiError && err.status === 409) {
         setIsConflict(true);
         setError(
           "This trip was updated elsewhere. Refresh the page and try again.",

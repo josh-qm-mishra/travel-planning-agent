@@ -11,6 +11,7 @@ from .config import settings
 from .db import TripRecord  # noqa: F401 — ensures model is registered before init_db
 from .db.base import create_db_engine, create_session_factory, init_db
 from .db.deps import get_db
+from .rate_limit import init_limiter
 from .routers.trips import router as trips_router
 
 # ---------------------------------------------------------------------------
@@ -58,6 +59,7 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("startup service=%s debug=%s", settings.app_name, settings.debug)
+    init_limiter(settings.rate_limit_per_minute, settings.rate_limit_per_hour)
     engine = create_db_engine(settings.database_url)
     await init_db(engine)
     app.state.session_factory = create_session_factory(engine)

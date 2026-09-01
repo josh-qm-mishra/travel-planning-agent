@@ -42,6 +42,14 @@ class Settings(BaseSettings):
         default="sqlite+aiosqlite:///./travel_planning.db",
         validation_alias=AliasChoices("DATABASE_URL", "APP_DATABASE_URL"),
     )
+    rate_limit_per_minute: int = Field(
+        default=5,
+        validation_alias=AliasChoices("RATE_LIMIT_PER_MINUTE", "APP_RATE_LIMIT_PER_MINUTE"),
+    )
+    rate_limit_per_hour: int = Field(
+        default=20,
+        validation_alias=AliasChoices("RATE_LIMIT_PER_HOUR", "APP_RATE_LIMIT_PER_HOUR"),
+    )
 
     model_config = SettingsConfigDict(
         env_prefix="APP_",

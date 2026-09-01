@@ -152,11 +152,17 @@ export default function NewTripPage() {
       const result = await api.trips.create(payload);
       router.push(`/trips/${result.id}`);
     } catch (err) {
-      setError(
-        err instanceof ApiError
-          ? err.message
-          : "Something went wrong. Please try again.",
-      );
+      if (err instanceof ApiError && err.status === 429) {
+        setError(
+          "You've made several planning requests recently. Please wait a moment and try again.",
+        );
+      } else {
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : "Something went wrong. Please try again.",
+        );
+      }
       setLoading(false);
     }
   }

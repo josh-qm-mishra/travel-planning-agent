@@ -20,7 +20,7 @@ class TripRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, trip: Trip) -> TripRecord:
+    async def create(self, trip: Trip, owner_hash: str) -> TripRecord:
         record = TripRecord(
             id=str(uuid.uuid4()),
             destination=trip.destination,
@@ -28,15 +28,18 @@ class TripRepository:
             end_date=trip.end_date,
             trip_data=trip.model_dump_json(),
             version=1,
+            owner_hash=owner_hash,
         )
         self._session.add(record)
         await self._session.commit()
         await self._session.refresh(record)
         return record
 
-    async def get(self, trip_id: str) -> TripRecord | None:
+    async def get(self, trip_id: str, owner_hash: str) -> TripRecord | None:
         result = await self._session.execute(
-            select(TripRecord).where(TripRecord.id == trip_id)
+            select(TripRecord)
+            .where(TripRecord.id == trip_id)
+            .where(TripRecord.owner_hash == owner_hash)
         )
         return result.scalar_one_or_none()
 
@@ -44,6 +47,7 @@ class TripRepository:
         self,
         trip_id: str,
         trip: Trip,
+        owner_hash: str,
         expected_version: int | None = None,
     ) -> TripRecord:
         """Update a trip record.
@@ -51,7 +55,7 @@ class TripRepository:
         If *expected_version* is provided the update is executed as a
         conditional write:
 
-            UPDATE trips SET ... WHERE id = ? AND version = expected_version
+            UPDATE trips SET ... WHERE id = ? AND owner_hash = ? AND version = expected_version
 
         If the row was already modified by another request the statement
         matches zero rows and ConflictError is raised.  The version counter is
@@ -74,6 +78,7 @@ class TripRepository:
             stmt = (
                 update(TripRecord)
                 .where(TripRecord.id == trip_id)
+                .where(TripRecord.owner_hash == owner_hash)
                 .where(TripRecord.version == expected_version)
                 .values(**new_values, version=expected_version + 1)
                 .returning(TripRecord)
@@ -82,9 +87,7 @@ class TripRepository:
             await self._session.commit()
             updated = result.scalar_one_or_none()
             if updated is None:
-                # Either the trip doesn't exist or a concurrent update changed
-                # the version before we could write.
-                existing = await self.get(trip_id)
+                existing = await self.get(trip_id, owner_hash)
                 if existing is None:
                     raise ValueError(f"Trip {trip_id!r} not found")
                 raise ConflictError(
@@ -95,7 +98,7 @@ class TripRepository:
             return updated
         else:
             # Unconditional update — no optimistic lock.
-            record = await self.get(trip_id)
+            record = await self.get(trip_id, owner_hash)
             if record is None:
                 raise ValueError(f"Trip {trip_id!r} not found")
             record.trip_data = trip.model_dump_json()
@@ -108,8 +111,10 @@ class TripRepository:
             await self._session.refresh(record)
             return record
 
-    async def list_all(self) -> list[TripRecord]:
+    async def list_all(self, owner_hash: str) -> list[TripRecord]:
         result = await self._session.execute(
-            select(TripRecord).order_by(desc(TripRecord.created_at))
+            select(TripRecord)
+            .where(TripRecord.owner_hash == owner_hash)
+            .order_by(desc(TripRecord.created_at))
         )
         return list(result.scalars().all())

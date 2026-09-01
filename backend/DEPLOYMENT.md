@@ -163,24 +163,80 @@ These limits are enforced by Pydantic at the API boundary (returns HTTP 422):
 
 ---
 
+## Anonymous ownership model
+
+Each trip is associated with an anonymous browser session rather than a user account.
+
+### How it works
+
+1. The frontend generates a random 32-byte hex token (`tpa_client_id`) on first visit and persists it in `localStorage`.
+2. Every API request includes an `X-Client-ID: <token>` header.
+3. The server hashes the token with SHA-256 (`owner_hash`) and stores the hash in the `trips.owner_hash` column.  The raw token is **never stored or logged**.
+4. All trip endpoints — list, get, replan — filter by `owner_hash`, so a visitor can only see and modify their own trips.
+5. Requests without an `X-Client-ID` header are rejected with HTTP 401.
+6. Requests for a trip that belongs to another owner return HTTP 404 (not 403), avoiding information disclosure.
+
+### Security limitations
+
+| Limitation | Notes |
+|---|---|
+| **No true authentication** | Possession of the raw token is the only credential.  Anyone who obtains a visitor's `localStorage` value can impersonate them. |
+| **Client-side secret** | The token lives in browser `localStorage` — visible to JavaScript running on the same origin.  XSS on the frontend would expose it. |
+| **Single-device** | The token is not shared across browsers or devices; a visitor using a different browser sees no trips. |
+| **Clearing storage** | If a visitor clears `localStorage` (or uses private browsing), a new token is generated and their previous trips are no longer accessible. |
+| **Orphaned rows** | Trips created before this migration have `owner_hash=''`, which no valid browser request can match; they are effectively abandoned. |
+
+This model is appropriate for a public portfolio / demo deployment.  Add proper authentication (e.g. OAuth, magic links) before storing sensitive user data.
+
+---
+
+## Rate limiting
+
+`POST /trips` and `POST /trips/{id}/replan` are subject to a per-owner sliding-window rate limit to protect paid OpenAI API costs.
+
+### Configuration
+
+| Variable | Default | Description |
+|---|---|---|
+| `RATE_LIMIT_PER_MINUTE` | `5` | Maximum AI planning requests per owner per minute |
+| `RATE_LIMIT_PER_HOUR` | `20` | Maximum AI planning requests per owner per hour |
+
+Set these in `.env` or your platform's environment variables.
+
+### Response when limited
+
+```
+HTTP 429 Too Many Requests
+Retry-After: <seconds>
+
+{"detail": "Too many planning requests. Please wait and try again."}
+```
+
+The frontend surfaces a user-friendly amber message and the user can retry after the indicated delay.
+
+### Single-instance limitation
+
+The rate limiter is **in-process and in-memory**.  It resets on server restart and does not coordinate across multiple uvicorn workers or replicas.
+
+For a single-process demo deployment this is acceptable.  For multi-worker or multi-replica deployments, replace the in-memory limiter with a shared store (Redis, database counters, or your platform's API gateway rate limiting).
+
+---
+
 ## Public deployment considerations
 
 Before exposing this service to public internet traffic:
 
-### Rate limiting
+### Additional rate limiting
 
-The planning and replan endpoints make paid OpenAI API calls.  The current implementation has **no rate limiting**.
+Consider adding edge-level rate limiting in front of the application layer:
+- Cloudflare Workers, AWS API Gateway, or Vercel middleware can rate-limit by IP address.
+- A reverse proxy (nginx, Caddy) can add request rate limits per source IP.
 
-Options for rate limiting before public launch:
-- Use your hosting platform's gateway/edge layer (e.g. Cloudflare Workers, AWS API Gateway, Vercel middleware) to rate-limit by IP.
-- Add an authentication layer so only authorized users can plan trips.
-- Deploy behind a reverse proxy (nginx, Caddy) configured with request rate limits.
-
-An in-memory Python rate limiter is **not** safe for production because it resets on restart and does not work across multiple worker processes.
+This complements the per-owner in-process limiter above.
 
 ### Authentication
 
-Currently there is no user authentication.  Every caller can read and modify every trip.  Add authentication before exposing the API publicly.
+The current ownership model is anonymous (browser token only).  Every visitor can read and modify their own trips but not others'.  There is no concept of user accounts, passwords, or sessions.  Add proper authentication before storing sensitive user data.
 
 ### CORS
 
