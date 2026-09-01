@@ -7,13 +7,19 @@ import ChangeSummary from "./ChangeSummary";
 
 interface ReplanPanelProps {
   tripId: string;
+  currentVersion: number;
   onReplanned: (response: ReplanResponse) => void;
 }
 
-export default function ReplanPanel({ tripId, onReplanned }: ReplanPanelProps) {
+export default function ReplanPanel({
+  tripId,
+  currentVersion,
+  onReplanned,
+}: ReplanPanelProps) {
   const [request, setRequest] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isConflict, setIsConflict] = useState(false);
   const [lastSummary, setLastSummary] = useState<ReplanResponse | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -23,17 +29,27 @@ export default function ReplanPanel({ tripId, onReplanned }: ReplanPanelProps) {
 
     setLoading(true);
     setError(null);
+    setIsConflict(false);
     setLastSummary(null);
 
     try {
-      const result = await api.trips.replan(tripId, trimmed);
+      const result = await api.trips.replan(tripId, trimmed, currentVersion);
       setLastSummary(result);
       setRequest("");
       onReplanned(result);
     } catch (err) {
-      setError(
-        err instanceof ApiError ? err.message : "Something went wrong. Please try again.",
-      );
+      if (err instanceof ApiError && err.status === 409) {
+        setIsConflict(true);
+        setError(
+          "This trip was updated elsewhere. Refresh the page and try again.",
+        );
+      } else {
+        setError(
+          err instanceof ApiError
+            ? err.message
+            : "Something went wrong. Please try again.",
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -44,7 +60,8 @@ export default function ReplanPanel({ tripId, onReplanned }: ReplanPanelProps) {
       <div>
         <h2 className="text-base font-semibold text-gray-900">Replan Trip</h2>
         <p className="text-sm text-gray-500 mt-0.5">
-          Describe what you&apos;d like to change and the AI will update your itinerary.
+          Describe what you&apos;d like to change and the AI will update your
+          itinerary.
         </p>
       </div>
 
@@ -61,7 +78,11 @@ export default function ReplanPanel({ tripId, onReplanned }: ReplanPanelProps) {
         {error && (
           <p
             role="alert"
-            className="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700"
+            className={`rounded-lg border px-3 py-2 text-sm ${
+              isConflict
+                ? "border-amber-200 bg-amber-50 text-amber-800"
+                : "border-red-200 bg-red-50 text-red-700"
+            }`}
           >
             {error}
           </p>

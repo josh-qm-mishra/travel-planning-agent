@@ -5,7 +5,7 @@ from datetime import date
 
 import pytest
 
-from app.db.repository import TripRepository
+from app.db.repository import ConflictError, TripRepository
 from app.models.trip import Trip
 
 
@@ -192,3 +192,81 @@ async def test_update_does_not_change_created_at(db_session):
     await asyncio.sleep(0.05)
     updated = await repo.update(record.id, make_trip("Tokyo", "2025-07-01", "2025-07-05"))
     assert updated.created_at == original_created
+
+
+# ---------------------------------------------------------------------------
+# version / optimistic concurrency
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_create_sets_version_to_one(db_session):
+    record = await TripRepository(db_session).create(make_trip())
+    assert record.version == 1
+
+
+@pytest.mark.anyio
+async def test_unconditional_update_increments_version(db_session):
+    repo = TripRepository(db_session)
+    record = await repo.create(make_trip())
+    assert record.version == 1
+    updated = await repo.update(record.id, make_trip("Tokyo", "2025-07-01", "2025-07-05"))
+    assert updated.version == 2
+
+
+@pytest.mark.anyio
+async def test_conditional_update_succeeds_with_correct_version(db_session):
+    repo = TripRepository(db_session)
+    record = await repo.create(make_trip())
+    updated = await repo.update(record.id, make_trip("Tokyo", "2025-07-01", "2025-07-05"), expected_version=1)
+    assert updated.version == 2
+    assert updated.destination == "Tokyo"
+
+
+@pytest.mark.anyio
+async def test_conditional_update_increments_version(db_session):
+    repo = TripRepository(db_session)
+    record = await repo.create(make_trip())
+    u1 = await repo.update(record.id, make_trip("Tokyo", "2025-07-01", "2025-07-05"), expected_version=1)
+    assert u1.version == 2
+    u2 = await repo.update(record.id, make_trip("Rome", "2025-08-01", "2025-08-03"), expected_version=2)
+    assert u2.version == 3
+
+
+@pytest.mark.anyio
+async def test_conditional_update_stale_version_raises_conflict(db_session):
+    repo = TripRepository(db_session)
+    record = await repo.create(make_trip())
+    # Advance the version to 2.
+    await repo.update(record.id, make_trip("Tokyo", "2025-07-01", "2025-07-05"), expected_version=1)
+
+    # A second writer still holds the old version=1.
+    with pytest.raises(ConflictError):
+        await repo.update(record.id, make_trip("Berlin", "2025-08-01", "2025-08-03"), expected_version=1)
+
+
+@pytest.mark.anyio
+async def test_conditional_update_lost_update_prevention(db_session):
+    """Simulate two concurrent replans; only the first should succeed."""
+    repo = TripRepository(db_session)
+    record = await repo.create(make_trip("Paris"))
+    original_version = record.version  # == 1
+
+    # Writer A succeeds and increments version to 2.
+    await repo.update(record.id, make_trip("Tokyo", "2025-07-01", "2025-07-05"), expected_version=original_version)
+
+    # Writer B, which also read version 1, now tries to write.
+    with pytest.raises(ConflictError):
+        await repo.update(record.id, make_trip("Rome", "2025-08-01", "2025-08-03"), expected_version=original_version)
+
+    # The winning write (Tokyo) must be preserved.
+    final = await repo.get(record.id)
+    assert final is not None
+    assert final.destination == "Tokyo"
+    assert final.version == 2
+
+
+@pytest.mark.anyio
+async def test_conditional_update_nonexistent_raises_value_error(db_session):
+    with pytest.raises(ValueError, match="not found"):
+        await TripRepository(db_session).update("nonexistent-id", make_trip(), expected_version=1)

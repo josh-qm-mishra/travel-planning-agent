@@ -13,6 +13,10 @@ _ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 class Settings(BaseSettings):
     app_name: str = "travel-planning-agent"
     debug: bool = False
+    log_level: str = Field(
+        default="INFO",
+        validation_alias=AliasChoices("LOG_LEVEL", "APP_LOG_LEVEL"),
+    )
     # Allowed CORS origins — JSON array in APP_CORS_ORIGINS or default to local dev ports.
     cors_origins: list[str] = Field(
         default=["http://localhost:3000", "http://localhost:3001"],

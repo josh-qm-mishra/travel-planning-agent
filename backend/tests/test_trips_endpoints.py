@@ -18,6 +18,7 @@ from app.agent.models import AgentRunMetadata, ReplanResult, TripChangeSummary
 from app.config import settings
 from app.db.base import init_db
 from app.db.deps import get_db
+from app.db.repository import ConflictError
 from app.main import app
 from app.models.trip import Trip
 
@@ -492,6 +493,162 @@ async def test_response_has_timestamps(client):
     data = resp.json()
     assert "created_at" in data
     assert "updated_at" in data
+
+
+@pytest.mark.anyio
+async def test_response_has_version(client):
+    with patch("app.routers.trips.plan_trip", return_value=(make_trip(), make_metadata())):
+        resp = await client.post("/trips", json={
+            "destination": "Paris",
+            "start_date": "2025-06-01",
+            "end_date": "2025-06-01",
+        })
+    assert resp.json()["version"] == 1
+
+
+@pytest.mark.anyio
+async def test_replan_increments_version(client):
+    trip_id = await _create_trip(client)
+    replan_result = ReplanResult(trip=make_trip(), change_summary=make_change_summary())
+    with patch("app.routers.trips.replan_trip", return_value=replan_result):
+        resp = await client.post(f"/trips/{trip_id}/replan", json={
+            "change_request": "Add a museum visit"
+        })
+    assert resp.json()["version"] == 2
+
+
+@pytest.mark.anyio
+async def test_replan_with_correct_expected_version_succeeds(client):
+    trip_id = await _create_trip(client)
+    replan_result = ReplanResult(trip=make_trip(), change_summary=make_change_summary())
+    with patch("app.routers.trips.replan_trip", return_value=replan_result):
+        resp = await client.post(f"/trips/{trip_id}/replan", json={
+            "change_request": "Add a museum visit",
+            "expected_version": 1,
+        })
+    assert resp.status_code == 200
+    assert resp.json()["version"] == 2
+
+
+@pytest.mark.anyio
+async def test_replan_with_stale_version_returns_409(client):
+    trip_id = await _create_trip(client)
+    replan_result = ReplanResult(trip=make_trip(), change_summary=make_change_summary())
+
+    # First replan advances version to 2.
+    with patch("app.routers.trips.replan_trip", return_value=replan_result):
+        await client.post(f"/trips/{trip_id}/replan", json={
+            "change_request": "First change",
+            "expected_version": 1,
+        })
+
+    # Second replan with stale version=1 must be rejected.
+    with patch("app.routers.trips.replan_trip", return_value=replan_result):
+        resp = await client.post(f"/trips/{trip_id}/replan", json={
+            "change_request": "Stale change",
+            "expected_version": 1,
+        })
+    assert resp.status_code == 409
+
+
+@pytest.mark.anyio
+async def test_replan_409_detail_is_user_safe(client):
+    trip_id = await _create_trip(client)
+    replan_result = ReplanResult(trip=make_trip(), change_summary=make_change_summary())
+    with patch("app.routers.trips.replan_trip", return_value=replan_result):
+        await client.post(f"/trips/{trip_id}/replan", json={
+            "change_request": "First change",
+            "expected_version": 1,
+        })
+    with patch("app.routers.trips.replan_trip", return_value=replan_result):
+        resp = await client.post(f"/trips/{trip_id}/replan", json={
+            "change_request": "Stale change",
+            "expected_version": 1,
+        })
+    detail = resp.json()["detail"]
+    # Should not expose DB internals.
+    assert "version" not in detail.lower() or "refresh" in detail.lower()
+    assert "Refresh" in detail or "refresh" in detail
+
+
+# ---------------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.anyio
+async def test_create_trip_rejects_destination_too_long(client):
+    resp = await client.post("/trips", json={
+        "destination": "A" * 201,
+        "start_date": "2025-06-01",
+        "end_date": "2025-06-03",
+    })
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_create_trip_rejects_too_many_days(client):
+    resp = await client.post("/trips", json={
+        "destination": "Paris",
+        "start_date": "2025-06-01",
+        "end_date": "2025-08-01",  # 61 days — over limit
+    })
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_create_trip_rejects_end_before_start(client):
+    resp = await client.post("/trips", json={
+        "destination": "Paris",
+        "start_date": "2025-06-05",
+        "end_date": "2025-06-01",
+    })
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_create_trip_rejects_too_many_interests(client):
+    resp = await client.post("/trips", json={
+        "destination": "Paris",
+        "start_date": "2025-06-01",
+        "end_date": "2025-06-03",
+        "interests": [f"interest{i}" for i in range(21)],  # 21 > max 20
+    })
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_create_trip_rejects_tag_too_long(client):
+    resp = await client.post("/trips", json={
+        "destination": "Paris",
+        "start_date": "2025-06-01",
+        "end_date": "2025-06-03",
+        "interests": ["x" * 61],  # 61 > max 60
+    })
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_replan_rejects_empty_change_request(client):
+    trip_id = await _create_trip(client)
+    resp = await client.post(f"/trips/{trip_id}/replan", json={
+        "change_request": "",
+    })
+    assert resp.status_code == 422
+
+
+@pytest.mark.anyio
+async def test_replan_rejects_change_request_too_long(client):
+    trip_id = await _create_trip(client)
+    resp = await client.post(f"/trips/{trip_id}/replan", json={
+        "change_request": "x" * 2001,
+    })
+    assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# Health
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.anyio

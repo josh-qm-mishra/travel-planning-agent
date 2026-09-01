@@ -25,6 +25,13 @@ def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessi
 
 
 async def init_db(engine: AsyncEngine) -> None:
-    """Create all tables declared on Base.metadata (idempotent)."""
+    """Create all tables declared on Base.metadata.
+
+    Used for development (SQLite) and tests.  Production databases should be
+    managed exclusively through Alembic migrations (``alembic upgrade head``).
+    This function remains idempotent (create_all skips existing tables) so it
+    is safe to call against an already-migrated PostgreSQL database during the
+    transition period, but it is NOT a replacement for proper migrations.
+    """
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

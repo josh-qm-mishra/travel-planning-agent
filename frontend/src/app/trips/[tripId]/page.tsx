@@ -36,7 +36,13 @@ export default function TripDetailPage() {
   }, [tripId]);
 
   function handleReplanned(response: ReplanResponse) {
-    setRecord({ id: response.id, trip: response.trip, created_at: response.created_at, updated_at: response.updated_at });
+    setRecord({
+      id: response.id,
+      trip: response.trip,
+      version: response.version,
+      created_at: response.created_at,
+      updated_at: response.updated_at,
+    });
   }
 
   if (loading) {
@@ -165,7 +171,11 @@ export default function TripDetailPage() {
         {/* Sidebar */}
         <div className="lg:sticky lg:top-20">
           <div className="rounded-2xl border border-gray-100 bg-white p-5 shadow-sm">
-            <ReplanPanel tripId={tripId} onReplanned={handleReplanned} />
+            <ReplanPanel
+              tripId={tripId}
+              currentVersion={record.version}
+              onReplanned={handleReplanned}
+            />
           </div>
         </div>
       </div>

@@ -64,10 +64,14 @@ export const api = {
         body: JSON.stringify(data),
       });
     },
-    replan(id: string, change_request: string): Promise<ReplanResponse> {
+    replan(
+      id: string,
+      change_request: string,
+      expected_version?: number,
+    ): Promise<ReplanResponse> {
       return request(`/trips/${id}/replan`, {
         method: "POST",
-        body: JSON.stringify({ change_request }),
+        body: JSON.stringify({ change_request, expected_version }),
       });
     },
   },

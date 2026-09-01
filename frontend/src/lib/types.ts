@@ -47,6 +47,7 @@ export interface Trip {
 export interface TripRecord {
   id: string;
   trip: Trip;
+  version: number;
   created_at: string;
   updated_at: string;
 }
