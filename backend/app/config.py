@@ -13,6 +13,11 @@ _ENV_FILE = Path(__file__).resolve().parent.parent.parent / ".env"
 class Settings(BaseSettings):
     app_name: str = "travel-planning-agent"
     debug: bool = False
+    # Allowed CORS origins — JSON array in APP_CORS_ORIGINS or default to local dev ports.
+    cors_origins: list[str] = Field(
+        default=["http://localhost:3000", "http://localhost:3001"],
+        validation_alias=AliasChoices("CORS_ORIGINS", "APP_CORS_ORIGINS"),
+    )
     # Accepts GOOGLE_API_KEY (conventional) or APP_GOOGLE_API_KEY (prefixed).
     google_api_key: str = Field(
         default="",
